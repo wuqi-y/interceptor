@@ -1,20 +1,34 @@
 // ==UserScript==
 // @name         简化版API拦截器配置面板
-// @namespace    http://tampermonkey.net/
-// @version      1.4.0
-// @description  带配置面板的API拦截器，支持本地存储，支持域名级别配置隔离
-// @author       You
+// @name:zh-CN   简化版API拦截器配置面板
+// @name:en      API Interceptor Configuration Panel
+// @namespace    https://github.com/wuqi-y/interceptor
+// @version      1.4.2
+// @description  带配置面板的API拦截器，支持本地存储，支持域名级别配置隔离，支持XHR和Fetch拦截
+// @description:zh-CN  功能强大的API拦截器，支持完全替换和部分修改两种模式，支持全局Header注入，按域名隔离配置，可拖拽悬浮按钮
+// @description:en     Powerful API Interceptor with configuration panel, supports both XHR and Fetch, domain-isolated configs
+// @author       wuqi-y
 // @match        *://*/*
+// @icon         data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="80">⚙️</text></svg>
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_listValues
 // @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest
+// @connect      cdn.jsdelivr.net
+// @connect      raw.githubusercontent.com
+// @connect      github.com
+// @connect      *
+// @grant        GM_notification
 // @grant        unsafeWindow
 // @run-at       document-start
+// @noframes
+// @license      MIT
 // ==/UserScript==
 
 (function () {
   'use strict';
+  const CURRENT_VERSION = '1.4.2';
 
   // ============================================
   // 🚫 只在顶层窗口运行，忽略 iframe
@@ -24,6 +38,280 @@
     return;
   }
   console.log('✅ [API拦截器] 在顶层窗口中运行');
+
+  // ============================================
+  // 🔔 网页内通知系统
+  // ============================================
+  function showInPageNotification (title, message, type = 'info', duration = 3000, onclick = null) {
+    // 创建通知容器（如果不存在）
+    let container = document.getElementById('interceptor-notification-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'interceptor-notification-container';
+      container.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 10000000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    `;
+      document.body.appendChild(container);
+    }
+
+    // 创建通知元素
+    const notification = document.createElement('div');
+    const notificationId = 'notification-' + Date.now();
+    notification.id = notificationId;
+
+    // 根据类型选择颜色
+    const colors = {
+      info: { bg: '#007acc', icon: '🔍' },
+      success: { bg: '#28a745', icon: '✅' },
+      warning: { bg: '#ffc107', icon: '⚠️' },
+      error: { bg: '#dc3545', icon: '❌' },
+      update: { bg: '#17a2b8', icon: '🔄' }
+    };
+
+    const color = colors[type] || colors.info;
+
+    notification.style.cssText = `
+    background: ${color.bg};
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    min-width: 300px;
+    max-width: 400px;
+    pointer-events: auto;
+    cursor: ${onclick ? 'pointer' : 'default'};
+    animation: slideIn 0.3s ease-out;
+    transition: all 0.3s ease;
+  `;
+
+    notification.innerHTML = `
+    <div style="display: flex; align-items: flex-start; gap: 12px;">
+      <div style="font-size: 24px; line-height: 1;">${color.icon}</div>
+      <div style="flex: 1;">
+        <div style="font-weight: bold; margin-bottom: 5px; font-size: 14px;">${title}</div>
+        <div style="font-size: 12px; line-height: 1.4; white-space: pre-line;">${message}</div>
+      </div>
+      <div style="font-size: 20px; opacity: 0.7; cursor: pointer; line-height: 1;" 
+           onclick="this.parentElement.parentElement.remove()">×</div>
+    </div>
+  `;
+
+    // 添加动画样式
+    if (!document.getElementById('interceptor-notification-style')) {
+      const style = document.createElement('style');
+      style.id = 'interceptor-notification-style';
+      style.textContent = `
+      @keyframes slideIn {
+        from {
+          transform: translateX(400px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      @keyframes slideOut {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(400px);
+          opacity: 0;
+        }
+      }
+    `;
+      document.head.appendChild(style);
+    }
+
+    // 点击事件
+    if (onclick) {
+      notification.onclick = function () {
+        onclick();
+        notification.remove();
+      };
+
+      // 鼠标悬停效果
+      notification.onmouseenter = function () {
+        this.style.transform = 'scale(1.02)';
+        this.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
+      };
+      notification.onmouseleave = function () {
+        this.style.transform = 'scale(1)';
+        this.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+      };
+    }
+
+    container.appendChild(notification);
+
+    // 自动消失
+    if (duration > 0) {
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => {
+          notification.remove();
+          // 如果容器为空，删除容器
+          if (container.children.length === 0) {
+            container.remove();
+          }
+        }, 300);
+      }, duration);
+    }
+
+    return notification;
+  }
+
+  // ============================================
+  // 🔄 自定义更新检查（带降级和详细提示）
+  // ============================================
+  const UPDATE_URLS = [
+    'https://raw.githubusercontent.com/wuqi-y/interceptor/main/simple_interceptor_panel.user.js',
+    'https://cdn.jsdelivr.net/gh/wuqi-y/interceptor@main/simple_interceptor_panel.user.js',
+    'https://github.com/wuqi-y/interceptor/raw/main/simple_interceptor_panel.user.js'
+  ];
+
+  // 检查更新
+  function checkForUpdates (isManual = false) {
+    const lastCheck = GM_getValue('last_update_check', 0);
+    const now = Date.now();
+
+    // 自动检查：每24小时检查一次
+    if (!isManual && now - lastCheck < 24 * 60 * 60 * 1000) {
+      // console.log('⏭️ [更新检查] 距上次检查未满24小时，跳过');
+      // return;
+    }
+
+    console.log('🔍 [更新检查] 开始检查更新...');
+
+    // 显示开始检查的提示（仅手动检查时）
+    if (isManual) {
+      showInPageNotification(
+        '🔍 API拦截器',
+        '正在检查更新...\n请稍候',
+        'info',
+        3000
+      );
+    }
+
+    tryNextUpdateUrl(0, isManual);
+  }
+
+  function tryNextUpdateUrl (index, isManual) {
+    if (index >= UPDATE_URLS.length) {
+      console.warn('⚠️ [更新检查] 所有更新源均失败');
+      GM_setValue('last_update_check', Date.now());
+
+      // 所有源都失败时的提示
+      if (isManual) {
+        showInPageNotification(
+          '❌ 更新检查失败',
+          '所有更新源均无法访问\n请检查网络连接或稍后重试',
+          'error',
+          5000
+        );
+      }
+      return;
+    }
+
+    const url = UPDATE_URLS[index];
+    const sourceName = url.includes('jsdelivr') ? 'jsDelivr CDN' :
+      url.includes('raw.githubusercontent') ? 'GitHub Raw' : 'GitHub';
+
+    console.log(`🔍 [更新检查] 尝试源 ${index + 1}/${UPDATE_URLS.length}: ${sourceName}`);
+
+    // 显示正在尝试的源（仅手动检查时，且不是第一个源）
+    if (isManual && index > 0) {
+      showInPageNotification(
+        '🔄 切换更新源',
+        `正在尝试: ${sourceName}\n(${index + 1}/${UPDATE_URLS.length})`,
+        'update',
+        2000
+      );
+    }
+
+    GM_xmlhttpRequest({
+      method: 'GET',
+      url: url,
+      timeout: 10000,
+      onload: function (response) {
+        if (response.status === 200) {
+          const scriptContent = response.responseText;
+
+          // 提取版本号
+          const versionMatch = scriptContent.match(/@version\s+([\d.]+)/);
+          if (versionMatch) {
+            const remoteVersion = versionMatch[1];
+            console.log(`✅ [更新检查] 远程版本: ${remoteVersion}, 当前版本: ${CURRENT_VERSION}`);
+
+            if (compareVersion(remoteVersion, CURRENT_VERSION) > 0) {
+              // 发现新版本
+              const updateUrl = url.replace('@main', '@latest');
+              showInPageNotification(
+                '🎉 发现新版本！',
+                `v${remoteVersion} 可用 (当前: v${CURRENT_VERSION})\n来源: ${sourceName}\n\n点击安装更新`,
+                'success',
+                0, // 不自动消失
+                function () {
+                  window.open(updateUrl, '_blank');
+                }
+              );
+              console.log(`🎉 [更新检查] 发现新版本: ${remoteVersion}，来源: ${sourceName}`);
+            } else {
+              console.log('✅ [更新检查] 当前已是最新版本');
+
+              // 已是最新版本的提示（仅手动检查时）
+              if (isManual) {
+                showInPageNotification(
+                  '✅ 已是最新版本',
+                  `当前版本: v${CURRENT_VERSION}\n检查源: ${sourceName}\n\n无需更新`,
+                  'success',
+                  5000
+                );
+              }
+            }
+
+            GM_setValue('last_update_check', Date.now());
+          } else {
+            console.warn(`⚠️ [更新检查] 无法从响应中提取版本号`);
+            tryNextUpdateUrl(index + 1, isManual);
+          }
+        } else {
+          console.warn(`⚠️ [更新检查] ${sourceName} 返回 ${response.status}，尝试下一个源...`);
+          tryNextUpdateUrl(index + 1, isManual);
+        }
+      },
+      onerror: function () {
+        console.warn(`⚠️ [更新检查] ${sourceName} 连接失败，尝试下一个源...`);
+        tryNextUpdateUrl(index + 1, isManual);
+      },
+      ontimeout: function () {
+        console.warn(`⚠️ [更新检查] ${sourceName} 超时，尝试下一个源...`);
+        tryNextUpdateUrl(index + 1, isManual);
+      }
+    });
+  }
+
+  // 比较版本号
+  function compareVersion (v1, v2) {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const p1 = parts1[i] || 0;
+      const p2 = parts2[i] || 0;
+      if (p1 > p2) return 1;
+      if (p1 < p2) return -1;
+    }
+    return 0;
+  }
 
   // ============================================
   // 📋 配置管理（新数据结构）
@@ -1387,11 +1675,30 @@
             </div>
 
             <!-- 通用操作 -->
-            <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
-              <button id="reload-page" style="background: #ffc107; color: #000; border: none;
-                                            padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                🔃 刷新页面
-              </button>
+            <!-- 更新管理 -->
+            <div style="border-top: 1px dashed #ddd; padding-top: 15px; margin-top: 15px;">
+              <h4 style="margin: 0 0 10px 0; color: #333; font-size: 14px;">🔄 更新管理</h4>
+              <div style="font-size: 12px; color: #666; background: #f8f9fa; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
+                💡 当前版本: <strong>v${CURRENT_VERSION}</strong><br>
+                📍 当前域名: <strong>${getCurrentDomain()}</strong><br>
+                ${isInterceptorEnabled()
+        ? '✅ 自动检查: <strong style="color: #28a745;">已启用</strong> (每24小时)'
+        : '⏭️ 自动检查: <strong style="color: #dc3545;">已跳过</strong> (拦截器未启用)'}
+              </div>
+              <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                <button id="check-update-btn" style="background: #007acc; color: white; border: none;
+                                                    padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                  🔍 检查更新
+                </button>
+                <button id="view-update-info-btn" style="background: #17a2b8; color: white; border: none;
+                                                        padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                  ℹ️ 更新信息
+                </button>
+                <button id="reload-page" style="background: #ffc107; color: #000; border: none;
+                                              padding: 7px 14px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                  🔃 刷新页面
+                </button>
+              </div>
             </div>
 
             <textarea id="import-config-text"
@@ -1650,6 +1957,68 @@
         if (confirm('🔃 确定要刷新页面吗？')) {
           location.reload();
         }
+      };
+    }
+
+    // ========== 新增：手动检查更新 ==========
+    const checkUpdateBtn = document.getElementById('check-update-btn');
+    if (checkUpdateBtn) {
+      checkUpdateBtn.onclick = () => {
+        console.log('🔄 [手动更新] 用户触发更新检查');
+
+        // 清除检查时间，强制检查
+        GM_setValue('last_update_check', 0);
+
+        // 清除全局锁（如果使用了方案3）
+        if (typeof UPDATE_CHECK_LOCK_KEY !== 'undefined') {
+          GM_setValue(UPDATE_CHECK_LOCK_KEY, 0);
+        }
+
+        // 执行检查（传入 true 表示手动检查）
+        checkForUpdates(true);
+      };
+    }
+
+    // ========== 新增：查看更新信息 ==========
+    const viewUpdateInfoBtn = document.getElementById('view-update-info-btn');
+    if (viewUpdateInfoBtn) {
+      viewUpdateInfoBtn.onclick = () => {
+        const lastCheck = GM_getValue('last_update_check', 0);
+        const lastCheckDate = lastCheck ? new Date(lastCheck).toLocaleString('zh-CN') : '从未检查';
+        const nextCheck = lastCheck
+          ? new Date(lastCheck + 24 * 60 * 60 * 1000).toLocaleString('zh-CN')
+          : '未知';
+
+        const enabled = isInterceptorEnabled();
+        const domain = getCurrentDomain();
+
+        const info = `
+          🔄 更新信息
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          📦 当前版本: v${CURRENT_VERSION}
+          📍 当前域名: ${domain}
+          🔌 拦截器状态: ${enabled ? '✅ 已启用' : '❌ 未启用'}
+
+          ⏰ 更新检查
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          🕐 上次检查: ${lastCheckDate}
+          ⏰ 下次自动检查: ${enabled ? nextCheck : '跳过（拦截器未启用）'}
+
+          🔗 更新源
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          1️⃣ jsDelivr CDN (主源，全球CDN)
+          2️⃣ GitHub Raw (备源)
+          3️⃣ GitHub (备源)
+
+          💡 说明
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          • 自动检查: 仅在启用拦截器的域名上执行
+          • 检查频率: 每24小时一次
+          • 手动检查: 随时点击"检查更新"按钮
+          • 发现新版本会弹出通知提示
+              `.trim();
+
+        alert(info);
       };
     }
 
@@ -2220,5 +2589,19 @@
 
   // 启动
   init();
+
+  // ========== 智能更新检查（仅已启用的域名） ==========
+  setTimeout(() => {
+    const enabled = isInterceptorEnabled();
+    const domain = getCurrentDomain();
+
+    if (enabled) {
+      console.log(`✅ [更新检查] 当前域名(${domain})已启用拦截器，将自动检查更新`);
+      checkForUpdates(false);
+    } else {
+      console.log(`⏭️ [更新检查] 当前域名(${domain})未启用拦截器，跳过自动更新检查`);
+      console.log(`💡 提示: 启用拦截器后会自动检查更新，或手动点击"检查更新"按钮`);
+    }
+  }, 3000);
 
 })();
