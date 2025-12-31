@@ -56,12 +56,12 @@
 
 **jsDelivr CDN（全球加速，推荐）：**
 ```
-https://cdn.jsdelivr.net/gh/wuqi-y/interceptor@main/simple_interceptor_panel.js
+https://cdn.jsdelivr.net/gh/wuqi-y/interceptor@main/simple_interceptor_panel.user.js
 ```
 
 **GitHub Raw（国内可能较慢）：**
 ```
-https://github.com/wuqi-y/interceptor/raw/main/simple_interceptor_panel.js
+https://github.com/wuqi-y/interceptor/raw/main/simple_interceptor_panel.user.js
 ```
 
 ### 方法2：手动安装
@@ -71,7 +71,7 @@ https://github.com/wuqi-y/interceptor/raw/main/simple_interceptor_panel.js
    - [Edge 商店](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd)
    - [Firefox 商店](https://addons.mozilla.org/firefox/addon/tampermonkey/)
 
-2. 复制 [`simple_interceptor_panel.js`](simple_interceptor_panel.js) 的内容
+2. 复制 [`simple_interceptor_panel.user.js`](simple_interceptor_panel.user.js) 的内容
 
 3. 在 Tampermonkey 管理面板中点击 ➕ 创建新脚本
 
